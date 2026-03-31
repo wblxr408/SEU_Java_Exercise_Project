@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # InfluxDB 2.x - 时序数据库，存储 k6 指标
+  influxdb:
+    image: influxdb:2.7
+    container_name: k6-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: k6
+      DOCKER_INFLUXDB_INIT_PASSWORD: k6password
+      DOCKER_INFLUXDB_INIT_ORG: k6-org
+      DOCKER_INFLUXDB_INIT_BUCKET: k6
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: k6token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Grafana - 可视化仪表盘
+  grafana:
+    image: grafana/grafana:10.3
+    container_name: k6-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/emotionhub.json:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # k6 runner - 运行性能测试（按需启动）
+  # 使用方法：
+  #   docker compose run --rm k6 run /scripts/scenarios/smoke.js
+  #   docker compose run --rm k6 run /scripts/scenarios/load.js
+  #   docker compose run --rm k6 run /scripts/scenarios/stress.js -e BASE_URL=http://host.docker.internal:8080
+  k6:
+    image: grafana/k6:latest
+    container_name: k6-runner
+    restart: "no"
+    environment:
+      K6_CLOUD_TOKEN: ${K6_CLOUD_TOKEN:-}
+      K6_PROMETHEUS_RW: "true"
+      K6_PROMETHEUS_RW_SERVER_URL: http://influxdb:8086/api/v1/prometheus/write
+      K6_PROMETHEUS_RW_TREND_AS_N Histogram
+      K6_OUT: "stdout"
+    volumes:
+      - ../..:/scripts:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    network_mode: host
+
+volumes:
+  influxdb-data:
+  grafana-data:

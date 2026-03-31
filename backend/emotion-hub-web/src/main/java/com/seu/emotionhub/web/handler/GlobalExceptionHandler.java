@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.stream.Collectors;
 
@@ -65,6 +66,16 @@ public class GlobalExceptionHandler {
     public Result<?> handleIllegalArgumentException(IllegalArgumentException e) {
         log.warn("非法参数: {}", e.getMessage());
         return Result.error(ErrorCode.PARAM_ERROR.getCode(), e.getMessage());
+    }
+
+    /**
+     * 处理文件上传大小超限
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<?> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        log.warn("文件上传大小超限: {}", e.getMessage());
+        return Result.error(ErrorCode.PARAM_ERROR.getCode(), "文件大小不能超过10MB");
     }
 
     /**

@@ -26,7 +26,8 @@
             <button type="button" class="remove-btn" @click="removeImage(idx)">×</button>
           </div>
           <div v-if="form.images.length < 9" class="upload-btn" @click="triggerUpload">
-            <span class="meta">+ ADD IMAGE</span>
+            <span v-if="uploading" class="meta">UPLOADING...</span>
+            <span v-else class="meta">+ ADD IMAGE</span>
           </div>
         </div>
         <input
@@ -37,15 +38,15 @@
           style="display: none"
           @change="handleFileChange"
         />
-        <p class="meta" style="margin-top: 0.5rem; opacity: 0.7">Maximum 9 images</p>
+        <p class="meta" style="margin-top: 0.5rem; opacity: 0.7">Maximum 9 images, each ≤10MB</p>
       </div>
 
       <div class="dialog-footer">
         <button type="button" class="archive-button-outline" @click="visible = false">
           CANCEL
         </button>
-        <button type="submit" class="archive-button" :disabled="loading">
-          {{ loading ? 'SUBMITTING...' : 'SUBMIT ENTRY' }}
+        <button type="submit" class="archive-button" :disabled="loading || uploading">
+          {{ loading ? 'SUBMITTING...' : uploading ? 'UPLOADING...' : 'SUBMIT ENTRY' }}
         </button>
       </div>
     </form>
@@ -55,6 +56,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { createPost, listPosts } from '@/api/post'
+import { uploadImages } from '@/api/file'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps<{
@@ -76,6 +78,7 @@ const form = ref({
   images: [] as string[]
 })
 
+const uploading = ref(false)
 const loading = ref(false)
 const fileInput = ref<HTMLInputElement>()
 
@@ -83,27 +86,38 @@ const triggerUpload = () => {
   fileInput.value?.click()
 }
 
-const handleFileChange = (event: Event) => {
+const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
-  const files = target.files
-  if (!files) return
+  const files = Array.from(target.files || [])
+  if (files.length === 0) return
 
-  // 模拟图片上传（实际项目中需要上传到服务器）
-  Array.from(files).forEach((file) => {
-    if (form.value.images.length >= 9) {
-      ElMessage.warning('Maximum 9 images allowed')
-      return
+  const remaining = 9 - form.value.images.length
+  if (remaining <= 0) {
+    ElMessage.warning('最多上传9张图片')
+    target.value = ''
+    return
+  }
+
+  const toUpload = files.slice(0, remaining)
+
+  uploading.value = true
+  try {
+    // 自动根据配置选择：OSS直传+URL注册 或 后端中转
+    const results = await uploadImages(toUpload)
+    results.forEach((r) => {
+      if (form.value.images.length < 9) {
+        form.value.images.push(r.url)
+      }
+    })
+    if (toUpload.length > results.length) {
+      ElMessage.warning(`超过9张上限，剩余 ${toUpload.length - results.length} 张未上传`)
     }
-
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      form.value.images.push(e.target?.result as string)
-    }
-    reader.readAsDataURL(file)
-  })
-
-  // 重置input
-  target.value = ''
+  } catch {
+    // 上传失败不清理已成功的内容
+  } finally {
+    uploading.value = false
+    target.value = ''
+  }
 }
 
 const removeImage = (index: number) => {
@@ -149,11 +163,7 @@ const handleSubmit = async () => {
     visible.value = false
     emit('success')
 
-    // 重置表单
-    form.value = {
-      content: '',
-      images: []
-    }
+    form.value = { content: '', images: [] }
   } catch (error: any) {
     ElMessage.error(error.message || 'Submission failed')
   } finally {

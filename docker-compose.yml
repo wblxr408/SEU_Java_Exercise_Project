@@ -40,6 +40,15 @@ services:
       timeout: 5s
       retries: 10
 
+  # 文件上传存储（本地模式需要持久化，重启不丢图）
+  uploads:
+    image: alpine:latest
+    container_name: emotionhub-uploads
+    restart: always
+    volumes:
+      - uploads-data:/var/emotionhub/uploads
+    command: ["true"]
+
   backend:
     build:
       context: ./backend
@@ -55,6 +64,9 @@ services:
       EMOTION_PROVIDER: qwen
       LLM_QIANWEN_ENABLED: "true"
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      FILE_STORAGE_MODE: local
+      FILE_LOCAL_BASE_PATH: /var/emotionhub/uploads
+      FILE_LOCAL_ACCESS_URL: /uploads
     ports:
       - "8080:8080"
     depends_on:
@@ -62,6 +74,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - uploads-data:/var/emotionhub/uploads
     healthcheck:
       test: [ "CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/test/hello" ]
       interval: 5s
@@ -83,3 +97,4 @@ services:
 volumes:
   mysql-data:
   redis-data:
+  uploads-data:

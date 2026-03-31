@@ -1,0 +1,77 @@
+spring:
+  profiles:
+    active: dev
+
+  application:
+    name: EmotionHub-Test
+
+  # 禁用 Flyway（测试时使用 H2 自动建表）
+  flyway:
+    enabled: false
+
+  # 数据源配置（使用 dev 环境配置）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${EMOTIONHUB_DB_HOST_DEV:localhost}:${EMOTIONHUB_DB_PORT_DEV:3307}/${EMOTIONHUB_DB_NAME_DEV:emotion_hub}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${EMOTIONHUB_DB_USERNAME_DEV:emotionhub}
+    password: ${EMOTIONHUB_DB_PASSWORD_DEV:123456}
+    hikari:
+      minimum-idle: 2
+      maximum-pool-size: 10
+
+  # Redis 配置（测试时可能不可用，使用 @MockBean）
+  data:
+    redis:
+      host: ${EMOTIONHUB_REDIS_HOST_DEV:localhost}
+      port: ${EMOTIONHUB_REDIS_PORT_DEV:6379}
+      password: ${EMOTIONHUB_REDIS_PASSWORD_DEV:}
+      database: 1
+
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+jwt:
+  secret: EmotionHub_Test_Secret_Key_Must_Be_Long_Enough_For_HS512_Algorithm_Test_Purposes_Only_64chars
+  expiration: 604800000
+
+dashscope:
+  api-key: ${DASHSCOPE_API_KEY:sk-test}
+
+emotion:
+  analysis:
+    provider: keyword
+
+async:
+  executor:
+    core-pool-size: 2
+    max-pool-size: 5
+    queue-capacity: 50
+    thread-name-prefix: test-async-
+    keep-alive-seconds: 60
+
+logging:
+  level:
+    root: WARN
+    com.seu.emotionhub: DEBUG
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n'
+
+server:
+  port: 0
+
+knife4j:
+  enable: false

@@ -20,7 +20,8 @@
     "socket.io-client": "^4.6.1",
     "@element-plus/icons-vue": "^2.3.1",
     "dayjs": "^1.11.10",
-    "nprogress": "^0.2.0"
+    "nprogress": "^0.2.0",
+    "ali-oss": "^6.20.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
