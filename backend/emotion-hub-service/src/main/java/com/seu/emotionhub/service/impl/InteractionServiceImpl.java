@@ -23,6 +23,7 @@ import com.seu.emotionhub.service.cache.HotPostCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -92,15 +93,24 @@ public class InteractionServiceImpl implements InteractionService {
             likeRecord.setUserId(userId);
             likeRecord.setTargetId(targetId);
             likeRecord.setTargetType(targetType);
-            likeRecordMapper.insert(likeRecord);
-            updateLikeCount(targetId, targetType, 1);
-            log.info("点赞成功: userId={}, targetId={}, targetType={}", userId, targetId, targetType);
-
-            // 发送点赞通知
-            sendLikeNotification(userId, targetId, targetType);
-
-            refreshPostCacheIfNeeded(targetId, targetType, "like");
-            return true;
+            try {
+                likeRecordMapper.insert(likeRecord);
+                updateLikeCount(targetId, targetType, 1);
+                log.info("点赞成功: userId={}, targetId={}, targetType={}", userId, targetId, targetType);
+                sendLikeNotification(userId, targetId, targetType);
+                refreshPostCacheIfNeeded(targetId, targetType, "like");
+                return true;
+            } catch (Exception e) {
+                // 并发情况下可能重复插入，检查是否已存在
+                if (e instanceof org.springframework.dao.DuplicateKeyException ||
+                        (e.getCause() != null && e.getCause().getMessage() != null &&
+                         e.getCause().getMessage().contains("Duplicate entry"))) {
+                    // 重复点赞，视为幂等成功
+                    log.info("点赞已存在(幂等): userId={}, targetId={}, targetType={}", userId, targetId, targetType);
+                    return true;
+                }
+                throw e;
+            }
         }
     }
 
@@ -142,9 +152,8 @@ public class InteractionServiceImpl implements InteractionService {
 
         commentMapper.insert(comment);
 
-        // 更新帖子评论数
-        post.setCommentCount(post.getCommentCount() + 1);
-        postMapper.updateById(post);
+        // 更新帖子评论数（使用原子操作避免并发死锁）
+        postMapper.incrementCommentCount(post.getId(), 1);
         refreshPostCacheIfNeeded(post.getId(), TargetType.POST.getCode(), "comment");
 
         log.info("发表评论成功: userId={}, postId={}, commentId={}", userId, request.getPostId(), comment.getId());
@@ -211,21 +220,15 @@ public class InteractionServiceImpl implements InteractionService {
     }
 
     /**
-     * 更新点赞数
+     * 更新点赞数（使用原子操作避免并发死锁）
      */
     private void updateLikeCount(Long targetId, String targetType, int delta) {
         if (TargetType.POST.getCode().equals(targetType)) {
-            Post post = postMapper.selectById(targetId);
-            if (post != null) {
-                post.setLikeCount(Math.max(0, post.getLikeCount() + delta));
-                postMapper.updateById(post);
-            }
+            // 使用原子操作更新，避免并发死锁
+            postMapper.incrementLikeCount(targetId, delta);
         } else if (TargetType.COMMENT.getCode().equals(targetType)) {
-            Comment comment = commentMapper.selectById(targetId);
-            if (comment != null) {
-                comment.setLikeCount(Math.max(0, comment.getLikeCount() + delta));
-                commentMapper.updateById(comment);
-            }
+            // 使用原子操作更新评论点赞数，避免并发死锁
+            commentMapper.incrementLikeCount(targetId, delta);
         }
     }
 
@@ -247,12 +250,9 @@ public class InteractionServiceImpl implements InteractionService {
 
         int deletedCount = softDeleteCommentAndChildren(commentId);
 
-        Post post = postMapper.selectById(comment.getPostId());
-        if (post != null) {
-            post.setCommentCount(Math.max(0, post.getCommentCount() - deletedCount));
-            postMapper.updateById(post);
-            refreshPostCacheIfNeeded(post.getId(), TargetType.POST.getCode(), deletedCount > 0 ? "comment" : null);
-        }
+        // 使用原子操作减少评论数，避免并发死锁
+        postMapper.decrementCommentCount(comment.getPostId(), deletedCount);
+        refreshPostCacheIfNeeded(comment.getPostId(), TargetType.POST.getCode(), deletedCount > 0 ? "comment" : null);
 
         log.info("{}删除评论成功: operatorId={}, commentId={}, deletedCount={}",
                 adminOperation ? "管理员" : "用户", operatorId, commentId, deletedCount);
@@ -413,10 +413,13 @@ public class InteractionServiceImpl implements InteractionService {
         if (post == null) {
             throw new BusinessException(ErrorCode.POST_NOT_FOUND);
         }
-        if (!PostStatus.PUBLISHED.getCode().equals(post.getStatus())) {
-            if (PostStatus.DELETED.getCode().equals(post.getStatus())) {
-                throw new BusinessException(ErrorCode.POST_DELETED);
-            }
+        // 允许 PUBLISHED 和 ANALYZING 状态的帖子进行交互
+        // ANALYZING 状态表示帖子已创建且正在分析，用户应能立即互动
+        if (PostStatus.DELETED.getCode().equals(post.getStatus())) {
+            throw new BusinessException(ErrorCode.POST_DELETED);
+        }
+        if (!PostStatus.PUBLISHED.getCode().equals(post.getStatus()) 
+                && !PostStatus.ANALYZING.getCode().equals(post.getStatus())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "帖子当前不可交互");
         }
         return post;

@@ -1,7 +1,7 @@
 # EmotionHub 后端配置文件 - 主配置
 spring:
   profiles:
-    active: dev  # 激活的配置文件: dev/prod
+    active: ${SPRING_PROFILES_ACTIVE:dev}  # 激活的配置文件: dev/prod，可通过环境变量覆盖
   flyway:
     locations: classpath:db/migration
 

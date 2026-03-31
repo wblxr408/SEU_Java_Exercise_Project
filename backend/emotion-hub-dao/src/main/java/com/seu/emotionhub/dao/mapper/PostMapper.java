@@ -43,4 +43,28 @@ public interface PostMapper extends BaseMapper<Post> {
      */
     @Update("UPDATE post SET comment_count = comment_count + #{count} WHERE id = #{postId}")
     int incrementCommentCount(@Param("postId") Long postId, @Param("count") Integer count);
+
+    /**
+     * 减少评论数（原子操作，用于删除评论时）
+     *
+     * @param postId 帖子ID
+     * @param count  减少的数量
+     * @return 影响行数
+     */
+    @Update("UPDATE post SET comment_count = GREATEST(0, comment_count - #{count}) WHERE id = #{postId}")
+    int decrementCommentCount(@Param("postId") Long postId, @Param("count") Integer count);
+
+    /**
+     * 更新帖子情感分析结果（原子操作，避免并发死锁）
+     * 只更新情感相关字段，不影响其他字段
+     *
+     * @param postId        帖子ID
+     * @param emotionLabel  情感标签
+     * @param emotionScore  情感分数
+     * @param status        帖子状态
+     * @return 影响行数
+     */
+    @Update("UPDATE post SET emotion_label = #{emotionLabel}, emotion_score = #{emotionScore}, status = #{status}, updated_at = NOW() WHERE id = #{postId}")
+    int updateEmotionAnalysis(@Param("postId") Long postId, @Param("emotionLabel") String emotionLabel,
+                              @Param("emotionScore") java.math.BigDecimal emotionScore, @Param("status") String status);
 }

@@ -9,9 +9,7 @@
  */
 package com.seu.emotionhub.config;
 
-import com.seu.emotionhub.common.util.JwtUtil;
-import com.seu.emotionhub.web.filter.JwtAuthenticationFilter;
-import org.mybatis.spring.SqlSessionFactoryBean;
+import com.seu.emotionhub.dao.mapper.UserMapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
@@ -20,7 +18,6 @@ import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -53,22 +50,6 @@ public class TestConfig {
     @Primary
     public PasswordEncoder testPasswordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    @Primary
-    public JwtUtil testJwtUtil() {
-        // 测试专用的短过期时间 JWT 工具
-        return new JwtUtil(
-            "EmotionHub_Test_Secret_Key_Must_Be_Long_Enough_For_HS512_Algorithm_Test_Purposes_Only",
-            3600000L // 1 hour
-        );
-    }
-
-    @Bean
-    @Primary
-    public JwtAuthenticationFilter testJwtAuthenticationFilter(JwtUtil jwtUtil) {
-        return new JwtAuthenticationFilter(jwtUtil);
     }
 
     @Bean

@@ -65,12 +65,13 @@ public class EmotionAnalysisServiceImpl implements EmotionAnalysisService {
             // 分析文本
             EmotionResult result = analyzeText(post.getContent());
 
-            // 更新帖子
-            post.setEmotionScore(BigDecimal.valueOf(result.getScore()));
-            post.setEmotionLabel(result.getLabel());
-            post.setStatus(PostStatus.PUBLISHED.getCode()); // 分析完成，状态改为已发布
-
-            postMapper.updateById(post);
+            // 使用原子操作更新情感分析结果，避免并发死锁
+            postMapper.updateEmotionAnalysis(
+                post.getId(),
+                result.getLabel(),
+                BigDecimal.valueOf(result.getScore()),
+                PostStatus.PUBLISHED.getCode()
+            );
             invalidateStatsCache(post.getUserId());
 
             log.info("帖子情感分析完成: postId={}, label={}, score={}",

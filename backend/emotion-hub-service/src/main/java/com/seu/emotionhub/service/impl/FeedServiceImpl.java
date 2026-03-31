@@ -81,29 +81,35 @@ public class FeedServiceImpl implements FeedService {
 
     @Override
     public FeedResponse generateFeed(Long userId, String strategy, int page, int size) {
-        size = normalizeSize(size);
-        String resolvedStrategy = abTestService.resolveStrategy(userId, strategy);
+        try {
+            log.info("Generating feed: userId={}, strategy={}, page={}, size={}", userId, strategy, page, size);
+            size = normalizeSize(size);
+            String resolvedStrategy = abTestService.resolveStrategy(userId, strategy);
 
-        // 尝试命中 Feed 缓存（仅缓存第0页，翻页直接计算）
-        if (page == 0) {
-            FeedResponse cached = tryGetFromCache(userId, resolvedStrategy);
-            if (cached != null) {
-                return cached;
+            // 尝试命中 Feed 缓存（仅缓存第0页，翻页直接计算）
+            if (page == 0) {
+                FeedResponse cached = tryGetFromCache(userId, resolvedStrategy);
+                if (cached != null) {
+                    return cached;
+                }
             }
-        }
 
-        EmotionStateEnum state = userEmotionService.matchEmotionState(userId);
+            EmotionStateEnum state = userEmotionService.matchEmotionState(userId);
+            log.info("User emotion state: {}", state);
 
-        // 一次性获取用户情感上下文（2.1 产物），排序和日志均复用
-        EmotionStatsDTO stats = userEmotionService.calculateSlidingWindowStats(userId, "24h");
-        Double userAvgScore = stats != null ? stats.getAvgScore() : null;
-        Double userVolatility = stats != null ? stats.getVolatility() : null;
-        String trendType = userEmotionService.judgeEmotionTrend(userId, "24h");
+            // 一次性获取用户情感上下文（2.1 产物），排序和日志均复用
+            EmotionStatsDTO stats = userEmotionService.calculateSlidingWindowStats(userId, "24h");
+            Double userAvgScore = stats != null ? stats.getAvgScore() : null;
+            Double userVolatility = stats != null ? stats.getVolatility() : null;
+            String trendType = userEmotionService.judgeEmotionTrend(userId, "24h");
 
-        List<FeedCandidate> candidates = loadCandidates(userId);
-        Map<Long, ContentEmotionTag> tagMap = contentEmotionTagService.getTagsByPostIds(
-                candidates.stream().map(c -> c.post.getId()).collect(Collectors.toSet())
-        );
+            List<FeedCandidate> candidates = loadCandidates(userId);
+            log.info("Loaded {} candidates", candidates.size());
+
+            Map<Long, ContentEmotionTag> tagMap = contentEmotionTagService.getTagsByPostIds(
+                    candidates.stream().map(c -> c.post.getId()).collect(Collectors.toSet())
+            );
+            log.info("Loaded {} emotion tags", tagMap.size());
 
         // 根据策略选择排序逻辑
         if ("emotional_adaptive".equals(resolvedStrategy)) {
@@ -148,6 +154,10 @@ public class FeedServiceImpl implements FeedService {
                 userAvgScore, userVolatility, trendType, paged);
 
         return response;
+        } catch (Exception e) {
+            log.error("Error generating feed for userId={}", userId, e);
+            throw e;
+        }
     }
 
     @Override

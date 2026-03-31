@@ -14,14 +14,12 @@
 package com.seu.emotionhub.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.seu.emotionhub.config.TestRedisConfig;
 import com.seu.emotionhub.model.dto.request.PostCreateRequest;
 import com.seu.emotionhub.model.dto.request.UserRegisterRequest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,7 +36,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
-@Import(TestRedisConfig.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @DisplayName("Feed 流、统计与通知集成测试")
 class FeedAndStatsIntegrationTest {

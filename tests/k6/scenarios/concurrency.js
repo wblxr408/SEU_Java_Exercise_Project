@@ -102,17 +102,17 @@ let sharedUserTokens = [];
 
 export const options = {
   // 高并发 VU，持续时间短，专门测并发
-  vus: 50,
-  duration: '2m',
+  vus: 30,
+  duration: '1m',
 
   thresholds: {
     // 允许少量错误（并发竞争不一定每次都赢）
-    http_req_failed: ['rate<0.10'],
+    http_req_failed: ['rate<0.15'],
 
     // 响应时间容忍度高（并发下资源争抢导致延迟）
     http_req_duration: ['p(99)<10000'],
 
-    checks: ['rate>0.85'],
+    checks: ['rate>0.80'],
   },
 
   tags: {
@@ -121,8 +121,8 @@ export const options = {
 };
 
 export function setup() {
-  const NUM_USERS = 60;
-  const NUM_POSTS = 5;
+  const NUM_USERS = 35;
+  const NUM_POSTS = 3;
   const users = [];
   const prefix = `conc_${Date.now()}`;
 

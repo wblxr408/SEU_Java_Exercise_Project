@@ -165,10 +165,13 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
         try {
             InternalEmotionResult result = analyzeWithQwen(apiKey, post.getContent());
 
-            post.setEmotionLabel(result.label);
-            post.setEmotionScore(java.math.BigDecimal.valueOf(result.score));
-            post.setStatus(PostStatus.PUBLISHED.getCode());
-            postMapper.updateById(post);
+            // 使用原子操作更新情感分析结果，避免并发死锁
+            postMapper.updateEmotionAnalysis(
+                post.getId(),
+                result.label,
+                java.math.BigDecimal.valueOf(result.score),
+                PostStatus.PUBLISHED.getCode()
+            );
             invalidateStatsCache(post.getUserId());
 
             log.info("情感分析完成（通义千问）: postId={}, label={}, score={}",
@@ -362,10 +365,13 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
             score = 0.0;
         }
 
-        post.setEmotionLabel(label);
-        post.setEmotionScore(java.math.BigDecimal.valueOf(score));
-        post.setStatus(PostStatus.PUBLISHED.getCode());
-        postMapper.updateById(post);
+        // 使用原子操作更新情感分析结果，避免并发死锁
+        postMapper.updateEmotionAnalysis(
+            post.getId(),
+            label,
+            java.math.BigDecimal.valueOf(score),
+            PostStatus.PUBLISHED.getCode()
+        );
         invalidateStatsCache(post.getUserId());
 
         log.info("情感分析完成（关键词降级）: postId={}, label={}, score={}",

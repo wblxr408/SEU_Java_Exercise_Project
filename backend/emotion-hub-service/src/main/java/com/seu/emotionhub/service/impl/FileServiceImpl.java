@@ -7,7 +7,6 @@ import com.seu.emotionhub.service.config.FileStorageProperties.Local;
 import com.seu.emotionhub.service.config.FileStorageProperties.Oss;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
-import com.aliyun.oss.model.DeleteObjectRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -124,14 +123,12 @@ public class FileServiceImpl implements FileService {
         try {
             com.qcloud.cos.COSClient cosClient = createCosClient();
             try {
-                com.qcloud.cos.model.PutObjectRequest putReq =
-                        new com.qcloud.cos.model.PutObjectRequest(
-                                cos.getBucket(), cosKey, file.getInputStream());
-                putReq.setInputStream(file.getInputStream());
-                putReq.setKey(cosKey);
-                putReq.setMetadata(new com.qcloud.cos.model.ObjectMetadata());
-                putReq.getMetadata().setContentLength(file.getSize());
-                putReq.getMetadata().setContentType(file.getContentType());
+            com.qcloud.cos.model.ObjectMetadata metadata = new com.qcloud.cos.model.ObjectMetadata();
+            metadata.setContentLength(file.getSize());
+            metadata.setContentType(file.getContentType());
+            com.qcloud.cos.model.PutObjectRequest putReq =
+                    new com.qcloud.cos.model.PutObjectRequest(
+                            cos.getBucket(), cosKey, file.getInputStream(), metadata);
                 cosClient.putObject(putReq);
                 log.info("图片上传至COS: bucket={}, key={}", cos.getBucket(), cosKey);
                 String baseUrl = cos.getDomain() != null && !cos.getDomain().isBlank()
@@ -169,7 +166,7 @@ public class FileServiceImpl implements FileService {
         com.qcloud.cos.ClientConfig clientConfig = new com.qcloud.cos.ClientConfig(
                 new com.qcloud.cos.region.Region(cos.getRegion()));
         return new com.qcloud.cos.COSClient(
-                new com.qcloud.cos.Credentials(cos.getSecretId(), cos.getSecretKey()),
+                new com.qcloud.cos.auth.BasicCOSCredentials(cos.getSecretId(), cos.getSecretKey()),
                 clientConfig);
     }
 
@@ -219,7 +216,7 @@ public class FileServiceImpl implements FileService {
         try {
             OSS ossClient = createOssClient(oss);
             try {
-                ossClient.deleteObject(new DeleteObjectRequest(oss.getBucket(), ossKey));
+                ossClient.deleteObject(oss.getBucket(), ossKey);
                 log.info("删除OSS文件: bucket={}, key={}", oss.getBucket(), ossKey);
             } finally {
                 ossClient.shutdown();
@@ -231,11 +228,8 @@ public class FileServiceImpl implements FileService {
 
     private OSS createOssClient(Oss oss) {
         String endpoint = "https://oss-" + oss.getRegion() + ".aliyuncs.com";
-        return OSSClientBuilder.create()
-                .credentialProvider(new com.aliyun.oss.common.auth.DefaultCredentialProvider(
-                        oss.getAccessKeyId(), oss.getAccessKeySecret()))
-                .endpoint(endpoint)
-                .build();
+        return new com.aliyun.oss.OSSClientBuilder().build(
+                endpoint, oss.getAccessKeyId(), oss.getAccessKeySecret());
     }
 
     private String extractOssKey(String url, Oss oss) {

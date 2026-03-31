@@ -18,6 +18,9 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
+      - --innodb-lock-wait-timeout=3
+      - --innodb-rollback-on-timeout=ON
+      - --lock-wait-timeout=3
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p123456" ]
       interval: 10s
@@ -50,9 +53,11 @@ services:
     command: ["true"]
 
   backend:
+    image: emotion-hub-web:local
+    container_name: emotionhub-backend
     build:
       context: ./backend
-    container_name: emotionhub-backend
+      dockerfile: Dockerfile
     restart: always
     environment:
       SPRING_PROFILES_ACTIVE: prod
