@@ -15,7 +15,7 @@ const tokenCache = {};
 // 测试数据基准前缀（避免多进程/多机器冲突）
 const RUN_ID = __ENV.K6_RUN_ID || Math.random().toString(36).substring(2, 10);
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080/api';
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8081/api';
 
 /**
  * 生成唯一用户名（防止并发注册冲突）

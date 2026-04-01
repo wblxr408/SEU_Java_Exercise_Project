@@ -40,7 +40,7 @@ if ($BuildImages) {
 }
 
 Write-Host "Waiting for backend health endpoint..."
-Wait-HttpReady -Name "Backend" -Url "http://localhost:8080/api/test/hello"
+Wait-HttpReady -Name "Backend" -Url "http://localhost:8081/api/test/hello"
 
 Write-Host "Waiting for frontend page..."
 Wait-HttpReady -Name "Frontend" -Url "http://localhost:3000"
