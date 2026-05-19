@@ -72,8 +72,7 @@ public class FeedServiceImpl implements FeedService {
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
-    /** 候选集放大倍数：取目标 size 的 N 倍做排序，再分页 */
-    private static final int CANDIDATE_POOL_SIZE = 300;
+    private static final int CANDIDATE_POOL_SIZE = 100;
 
     // -------------------------------------------------------
     // 公开接口
@@ -133,8 +132,14 @@ public class FeedServiceImpl implements FeedService {
         candidates.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
         List<FeedCandidate> paged = paginate(candidates, page, size);
 
+        // 批量加载用户信息（消除N+1查询）
+        Set<Long> authorIds = paged.stream()
+                .map(c -> c.post.getUserId())
+                .collect(Collectors.toSet());
+        Map<Long, User> userMap = batchLoadUsers(authorIds);
+
         List<PostVO> items = paged.stream()
-                .map(c -> convertToPostVO(c.post))
+                .map(c -> convertToPostVO(c.post, userMap.get(c.post.getUserId())))
                 .collect(Collectors.toList());
 
         FeedResponse response = new FeedResponse();
@@ -435,7 +440,10 @@ public class FeedServiceImpl implements FeedService {
     void asyncWriteLog(Long userId, String strategy, String emotionState,
                        Double userAvgScore, Double userVolatility, String trendType,
                        List<FeedCandidate> paged) {
+        if (paged == null || paged.isEmpty()) return;
+
         LocalDateTime now = LocalDateTime.now();
+        List<RecommendationLog> batch = new ArrayList<>(paged.size());
         for (int i = 0; i < paged.size(); i++) {
             FeedCandidate c = paged.get(i);
             RecommendationLog record = new RecommendationLog();
@@ -447,16 +455,16 @@ public class FeedServiceImpl implements FeedService {
             record.setPosition(i + 1);
             record.setImpressedAt(now);
             record.setClicked(false);
-            // 曝光时的用户情感上下文快照（来自 2.1 + 2.3）
             record.setUserAvgScore(userAvgScore);
             record.setUserVolatility(userVolatility);
             record.setTrendType(trendType);
             record.setAuthorInfluence(c.authorInfluence);
-            try {
-                recommendationLogMapper.insert(record);
-            } catch (Exception ex) {
-                log.warn("推荐日志写入失败: userId={}, postId={}", userId, c.post.getId(), ex);
-            }
+            batch.add(record);
+        }
+        try {
+            recommendationLogMapper.insertBatchSomeColumn(batch);
+        } catch (Exception ex) {
+            log.warn("推荐日志批量写入失败，记录数={}: {}", batch.size(), ex.getMessage());
         }
     }
 
@@ -465,6 +473,25 @@ public class FeedServiceImpl implements FeedService {
     // -------------------------------------------------------
 
     private PostVO convertToPostVO(Post post) {
+        User user = userMapper.selectById(post.getUserId());
+        return convertToPostVO(post, user);
+    }
+
+    /**
+     * 批量查询用户信息（消除N+1查询）
+     */
+    private Map<Long, User> batchLoadUsers(Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<User> users = userMapper.selectBatchIds(userIds);
+        return users.stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+    }
+
+    /**
+     * 转换为PostVO（使用已查询的用户信息）
+     */
+    private PostVO convertToPostVO(Post post, User user) {
         PostVO vo = new PostVO();
         vo.setId(post.getId());
         vo.setUserId(post.getUserId());
@@ -482,7 +509,6 @@ public class FeedServiceImpl implements FeedService {
             vo.setImages(JSON.parseArray(post.getImages(), String.class));
         }
 
-        User user = userMapper.selectById(post.getUserId());
         if (user != null) {
             vo.setUsername(user.getUsername());
             vo.setNickname(user.getNickname());

@@ -59,8 +59,8 @@ public class EmotionAnalysisServiceImpl implements EmotionAnalysisService {
                 return;
             }
 
-            // 模拟分析耗时
-            Thread.sleep(1000 + random.nextInt(2000)); // 1-3秒
+            // 模拟快速分析（关键词分析无需长时间等待）
+            Thread.sleep(50 + random.nextInt(100)); // 50-150ms
 
             // 分析文本
             EmotionResult result = analyzeText(post.getContent());
@@ -72,6 +72,8 @@ public class EmotionAnalysisServiceImpl implements EmotionAnalysisService {
                 BigDecimal.valueOf(result.getScore()),
                 PostStatus.PUBLISHED.getCode()
             );
+            // 清理帖子详情缓存，确保下次查询能获取到最新情感数据
+            cacheService.delete(CacheService.CacheKey.POST_DETAIL + post.getId());
             invalidateStatsCache(post.getUserId());
 
             log.info("帖子情感分析完成: postId={}, label={}, score={}",

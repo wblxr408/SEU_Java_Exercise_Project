@@ -1,0 +1,78 @@
+spring:
+  profiles:
+    active: test
+
+  application:
+    name: EmotionHub-Test
+
+  # H2 内存数据库（覆盖 dev/prod 配置）
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:emotionhub_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false
+    username: sa
+    password:
+
+  flyway:
+    enabled: false
+
+  # 自动执行 schema-test.sql
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-test.sql
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 1
+
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+jwt:
+  secret: EmotionHub_Test_Secret_Key_Must_Be_Long_Enough_For_HS512_Algorithm_Test_Purposes_Only_64chars
+  expiration: 604800000
+
+dashscope:
+  api-key: ${DASHSCOPE_API_KEY:sk-test}
+
+emotion:
+  analysis:
+    provider: keyword
+
+async:
+  executor:
+    core-pool-size: 2
+    max-pool-size: 5
+    queue-capacity: 50
+    thread-name-prefix: test-async-
+    keep-alive-seconds: 60
+
+logging:
+  level:
+    root: WARN
+    com.seu.emotionhub: DEBUG
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n'
+
+server:
+  port: 0
+
+knife4j:
+  enable: false

@@ -14,13 +14,20 @@
 package com.seu.emotionhub.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.seu.emotionhub.dao.mapper.UserMapper;
 import com.seu.emotionhub.model.dto.request.CommentCreateRequest;
 import com.seu.emotionhub.model.dto.request.PostCreateRequest;
 import com.seu.emotionhub.model.dto.request.UserRegisterRequest;
+import com.seu.emotionhub.model.entity.User;
+import com.seu.emotionhub.config.TestConfig;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.style.ToStringCreator;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,8 +44,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@ActiveProfiles("dev")
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@ActiveProfiles("test")
+@MapperScan("com.seu.emotionhub.dao.mapper")
+@TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @DisplayName("帖子与互动功能集成测试")
 class PostIntegrationTest {
 
@@ -48,6 +56,9 @@ class PostIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private UserMapper userMapper;
+
     private String testUsername;
     private String testPassword = "TestPass123!";
     private String testToken;
@@ -55,7 +66,12 @@ class PostIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        testUsername = "postuser_" + UUID.randomUUID().toString().substring(0, 8);
+        // 生成唯一用户名（<= 20字符，满足校验）
+        // 格式: pu_ + 13位时间戳 + 3位随机 = ~18字符
+        String ts = String.valueOf(System.currentTimeMillis());
+        int rand = (int) (Math.random() * 900 + 100); // 100-999
+        testUsername = "pu_" + ts.substring(ts.length() - 10) + rand;
+        testPassword = "TestPass123!";
 
         // 注册用户
         UserRegisterRequest registerRequest = new UserRegisterRequest();
@@ -70,8 +86,11 @@ class PostIntegrationTest {
             .andReturn();
 
         String regBody = regResult.getResponse().getContentAsString();
-        com.alibaba.fastjson2.JSONObject regJson =
-            com.alibaba.fastjson2.JSONObject.parseObject(regBody);
+        com.alibaba.fastjson2.JSONObject regJson = com.alibaba.fastjson2.JSONObject.parseObject(regBody);
+
+        if (regJson.getInteger("code") != 200) {
+            throw new IllegalStateException("注册失败: " + regBody);
+        }
         testToken = regJson.getJSONObject("data").getString("token");
         testUserId = regJson.getJSONObject("data").getJSONObject("userInfo").getLong("id");
     }
@@ -93,7 +112,7 @@ class PostIntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.id").isNumber())
                 .andExpect(jsonPath("$.data.content").value(request.getContent()));
         }
@@ -135,7 +154,7 @@ class PostIntegrationTest {
             mockMvc.perform(get("/api/post/{postId}", postId)
                     .header("Authorization", "Bearer " + testToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.content").value(postRequest.getContent()));
         }
 
@@ -157,7 +176,7 @@ class PostIntegrationTest {
                     .param("page", "1")
                     .param("size", "10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.records").isArray())
                 .andExpect(jsonPath("$.data.total").isNumber());
         }
@@ -171,7 +190,7 @@ class PostIntegrationTest {
                     .param("page", "1")
                     .param("size", "10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.records").isArray());
         }
     }
@@ -215,7 +234,7 @@ class PostIntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.id").isNumber())
                 .andExpect(jsonPath("$.data.content").value(request.getContent()));
         }
@@ -272,7 +291,7 @@ class PostIntegrationTest {
                     .header("Authorization", "Bearer " + testToken)
                     .param("postId", String.valueOf(postId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data").isArray());
         }
 
@@ -298,7 +317,7 @@ class PostIntegrationTest {
             mockMvc.perform(delete("/api/interaction/comment/{commentId}", commentId)
                     .header("Authorization", "Bearer " + testToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0));
+                .andExpect(jsonPath("$.code").value(200));
         }
     }
 

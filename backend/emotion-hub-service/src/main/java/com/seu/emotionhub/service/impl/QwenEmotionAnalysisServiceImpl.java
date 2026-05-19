@@ -13,6 +13,7 @@ import com.seu.emotionhub.model.enums.PostStatus;
 import com.seu.emotionhub.service.ApiKeyConfigService;
 import com.seu.emotionhub.service.EmotionAnalysisService;
 import com.seu.emotionhub.service.cache.CacheService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -144,6 +145,7 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
                         """;
 
     @Override
+    @CircuitBreaker(name = "emotion", fallbackMethod = "analyzePostAsyncFallback")
     @Async("taskExecutor")
     public void analyzePostAsync(Long postId) {
         Post post = postMapper.selectById(postId);
@@ -173,6 +175,7 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
                 PostStatus.PUBLISHED.getCode()
             );
             invalidateStatsCache(post.getUserId());
+            invalidatePostDetailCache(post.getId());
 
             log.info("情感分析完成（通义千问）: postId={}, label={}, score={}",
                     postId, result.label, result.score);
@@ -180,6 +183,22 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
         } catch (Exception e) {
             log.error("通义千问分析失败，降级使用关键词分析: postId={}", postId, e);
             fallbackToKeywordAnalysis(post);
+        }
+    }
+
+    /**
+     * 情感分析熔断降级方法
+     * 当熔断器开启时，直接使用关键词分析
+     */
+    public void analyzePostAsyncFallback(Long postId, Throwable throwable) {
+        log.warn("情感分析熔断触发，降级处理: postId={}, error={}", postId, throwable.getMessage());
+        try {
+            Post post = postMapper.selectById(postId);
+            if (post != null) {
+                fallbackToKeywordAnalysis(post);
+            }
+        } catch (Exception e) {
+            log.error("熔断降级失败: postId={}", postId, e);
         }
     }
 
@@ -373,6 +392,7 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
             PostStatus.PUBLISHED.getCode()
         );
         invalidateStatsCache(post.getUserId());
+        invalidatePostDetailCache(post.getId());
 
         log.info("情感分析完成（关键词降级）: postId={}, label={}, score={}",
                 post.getId(), label, score);
@@ -435,5 +455,9 @@ public class QwenEmotionAnalysisServiceImpl implements EmotionAnalysisService {
     private void invalidateStatsCache(Long userId) {
         cacheService.delete(CacheService.CacheKey.STATS_USER + userId);
         cacheService.delete(CacheService.CacheKey.STATS_PLATFORM);
+    }
+
+    private void invalidatePostDetailCache(Long postId) {
+        cacheService.delete(CacheService.CacheKey.POST_DETAIL + postId);
     }
 }

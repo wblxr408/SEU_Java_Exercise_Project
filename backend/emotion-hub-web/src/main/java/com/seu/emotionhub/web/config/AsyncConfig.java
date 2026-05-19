@@ -1,5 +1,6 @@
 package com.seu.emotionhub.web.config;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,7 +18,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Slf4j
 @Configuration
 @EnableAsync
+@RequiredArgsConstructor
 public class AsyncConfig {
+
+    private final AsyncExecutorProperties asyncExecutorProperties;
 
     /**
      * 异步任务执行器
@@ -27,29 +31,14 @@ public class AsyncConfig {
     public Executor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-        // 核心线程数
-        executor.setCorePoolSize(5);
-
-        // 最大线程数
-        executor.setMaxPoolSize(20);
-
-        // 队列容量
-        executor.setQueueCapacity(100);
-
-        // 线程名称前缀
-        executor.setThreadNamePrefix("emotion-async-");
-
-        // 线程空闲时间（秒）
-        executor.setKeepAliveSeconds(60);
-
-        // 拒绝策略：调用者线程执行
+        executor.setCorePoolSize(asyncExecutorProperties.getCorePoolSize());
+        executor.setMaxPoolSize(asyncExecutorProperties.getMaxPoolSize());
+        executor.setQueueCapacity(asyncExecutorProperties.getQueueCapacity());
+        executor.setThreadNamePrefix(asyncExecutorProperties.getThreadNamePrefix());
+        executor.setKeepAliveSeconds(asyncExecutorProperties.getKeepAliveSeconds());
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-
-        // 等待所有任务完成后再关闭线程池
         executor.setWaitForTasksToCompleteOnShutdown(true);
-
-        // 等待时间（秒）
-        executor.setAwaitTerminationSeconds(60);
+        executor.setAwaitTerminationSeconds(asyncExecutorProperties.getKeepAliveSeconds());
 
         executor.initialize();
 

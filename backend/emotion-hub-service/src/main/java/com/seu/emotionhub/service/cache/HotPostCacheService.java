@@ -14,6 +14,7 @@ import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 热门帖子缓存服务
@@ -160,10 +161,13 @@ public class HotPostCacheService {
 
             // 如果是热门帖子，刷新缓存
             Set<Object> hotPostIds = getHotPostIds(100);
-            if (hotPostIds.contains(String.valueOf(postId))) {
+            if (hotPostIds.stream().map(Object::toString).collect(Collectors.toSet()).contains(String.valueOf(postId))) {
                 String key = HOT_POST_DETAIL + postId;
                 cacheService.delete(key);
             }
+
+            // 清理列表缓存（热度变化会影响排序）
+            cacheService.deletePattern(CacheService.CacheKey.POST_LIST + "*");
 
             log.debug("更新帖子热度: postId={}, action={}, delta={}", postId, action, deltaScore);
         } catch (Exception e) {
@@ -209,7 +213,7 @@ public class HotPostCacheService {
         try {
             Set<String> keys = postIds.stream()
                 .map(id -> HOT_POST_DETAIL + id)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(Collectors.toSet());
 
             cacheService.deleteBatch(keys);
 

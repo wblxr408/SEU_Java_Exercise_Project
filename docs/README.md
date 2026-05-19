@@ -111,4 +111,5 @@ curl -X POST http://localhost:5000/reload #热加载新模型，无需重启
 
 - [项目启动指南](./项目启动指南.md)
 - [测试账号](./测试账号.md)
+- [EmotionHub 产品答辩 100 题（含参考答案）](./EmotionHub产品答辩100题.md)
 - [后端说明](../backend/README.md)

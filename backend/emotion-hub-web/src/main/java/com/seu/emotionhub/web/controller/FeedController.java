@@ -3,6 +3,7 @@ package com.seu.emotionhub.web.controller;
 import com.seu.emotionhub.common.result.Result;
 import com.seu.emotionhub.model.dto.response.FeedResponse;
 import com.seu.emotionhub.service.FeedService;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +34,7 @@ public class FeedController {
      * @param size     每页数量，默认 20，最大 50
      */
     @GetMapping
+    @RateLimiter(name = "feed", fallbackMethod = "getFeedFallback")
     @Operation(summary = "获取个性化 Feed", description = "情感自适应策略与传统策略 A/B 测试，实时情感重排序")
     public Result<FeedResponse> getFeed(
             @Parameter(description = "用户ID", required = true)
@@ -50,6 +52,14 @@ public class FeedController {
         log.info("Feed 请求: userId={}, strategy={}, page={}, size={}", userId, strategy, page, size);
         FeedResponse response = feedService.generateFeed(userId, strategy, page, size);
         return Result.success(response);
+    }
+
+    /**
+     * Feed 限流降级方法
+     */
+    public Result<FeedResponse> getFeedFallback(Long userId, String strategy, int page, int size, Throwable throwable) {
+        log.warn("Feed 限流触发，快速失败: userId={}, error={}", userId, throwable.getMessage());
+        return Result.error(429, "请求过于频繁，请稍后再试");
     }
 
     /**

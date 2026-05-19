@@ -11,16 +11,17 @@ spring:
   # 数据源配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${EMOTIONHUB_DB_HOST_DEV:localhost}:${EMOTIONHUB_DB_PORT_DEV:3307}/${EMOTIONHUB_DB_NAME_DEV:emotion_hub}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: ${EMOTIONHUB_DB_USERNAME_DEV:emotionhub}
-    password: ${EMOTIONHUB_DB_PASSWORD_DEV:123456}
+    url: jdbc:mysql://${EMOTIONHUB_DB_HOST_DEV:localhost}:${EMOTIONHUB_DB_PORT_DEV:3306}/${EMOTIONHUB_DB_NAME_DEV:emotion_hub}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${EMOTIONHUB_DB_USERNAME_DEV:root}
+    password: ${EMOTIONHUB_DB_PASSWORD_DEV:}
     # Hikari连接池配置
     hikari:
-      minimum-idle: 5
-      maximum-pool-size: 20
+      minimum-idle: 50
+      maximum-pool-size: 200
       idle-timeout: 300000
       connection-timeout: 20000
       max-lifetime: 1200000
+      pool-name: EmotionHub-HikariCP
 
   # Redis配置
   data:
@@ -32,10 +33,10 @@ spring:
       timeout: 5000ms
       lettuce:
         pool:
-          max-active: 20
-          max-idle: 10
-          min-idle: 5
-          max-wait: 2000ms
+          max-active: 200
+          max-idle: 100
+          min-idle: 30
+          max-wait: 1000ms
 
   # 文件上传配置
   servlet:
@@ -74,7 +75,7 @@ jwt:
 
 # 通义千问API配置
 dashscope:
-  api-key: ${DASHSCOPE_API_KEY:sk-4c76aa29e3e44fa6aff8454546ba9925}  # 默认内置API Key，也可通过环境变量覆盖
+  api-key: ${DASHSCOPE_API_KEY:}
 
 # 情感分析配置
 emotion:
@@ -109,9 +110,9 @@ emotion:
 # 异步线程池配置
 async:
   executor:
-    core-pool-size: 5
-    max-pool-size: 20
-    queue-capacity: 100
+    core-pool-size: 20
+    max-pool-size: 100
+    queue-capacity: 500
     thread-name-prefix: emotion-async-
     keep-alive-seconds: 60
 
@@ -134,7 +135,40 @@ logging:
     max-size: 10MB
     max-history: 30
 
-# ML 排序服务配置
+# Resilience4j 限流熔断配置
+resilience4j:
+  ratelimiter:
+    instances:
+      global:
+        limit-for-period: 300
+        limit-refresh-period: 1s
+        timeout-duration: 2s
+        event-consumer-buffer-size: 100
+      post:
+        limit-for-period: 80
+        limit-refresh-period: 1s
+        timeout-duration: 1s
+      feed:
+        limit-for-period: 150
+        limit-refresh-period: 1s
+        timeout-duration: 2s
+      emotion:
+        limit-for-period: 30
+        limit-refresh-period: 1s
+        timeout-duration: 3s
+  circuitbreaker:
+    instances:
+      emotion:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: 20s
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 3s
+
 # 训练完模型、启动 Docker 服务后，将 enabled 改为 true
 ranker:
   url: http://localhost:5000
@@ -168,10 +202,15 @@ emotionhub:
 
 # 服务器配置
 server:
-  port: ${EMOTIONHUB_SERVER_PORT_DEV:8080}
+  port: ${EMOTIONHUB_SERVER_PORT_DEV:8082}
   tomcat:
     # JSON 发帖含 base64 图片时需大于默认 2MB，与 nginx client_max_body_size 对齐
     max-http-post-size: 50MB
+    threads:
+      max: 400
+      min-spare: 50
+    accept-count: 200
+    max-connections: 20000
   servlet:
     context-path:
   compression:
@@ -187,6 +226,8 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+    circuitbreakers:
+      enabled: true
 
 # Swagger/Knife4j配置
 knife4j:
@@ -196,4 +237,4 @@ knife4j:
   basic:
     enable: false
     username: admin
-    password: admin123
+    password: ${KNIFE4J_PASSWORD:}

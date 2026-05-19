@@ -46,26 +46,30 @@ export const options = {
 };
 
 export function setup() {
-  // 预注册 3 个用户，避免测试过程中注册超时
-  // 使用已知测试账号直接登录，绕过注册限流
+  // 预先创建测试用户（在运行测试前必须先创建这些用户）
   const testUsers = [
-    { username: 'alice_chen', password: 'password123' },
-    { username: 'bob_wang', password: 'password123' },
-    { username: 'carol_liu', password: 'password123' },
+    { username: 'k6user001', password: 'password123', userId: 233, token: 'eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInVzZXJJZCI6MjMzLCJ1c2VybmFtZSI6Ims2dXNlcjAwMSIsInN1YiI6Ims2dXNlcjAwMSIsImlhdCI6MTc3NTE3Njg2OSwiZXhwIjoxNzc1NzgxNjY5fQ.B-fRZiyH-Aw-UY88OIth9gLwFTlu8z8V2tlKAzJbxrUo7hD4LolV2K93ZCLw-jAfklSss2dixCD-oORmJD_1bA' },
+    { username: 'k6user002', password: 'password123', userId: 234, token: 'eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInVzZXJJZCI6MjM0LCJ1c2VybmFtZSI6Ims2dXNlcjAwMiIsInN1YiI6Ims2dXNlcjAwMiIsImlhdCI6MTc3NTE3Njg4OCwiZXhwIjoxNzc1NzgxNjg4fQ.J7czWX3el7W3aE0M_Ts73QOjgRwbPqAuZtjEI93tHgr4oyhferMLMI-uMXJsTPXawyoTthcFHn53FOPjMG9NsA' },
+    { username: 'k6user003', password: 'password123', userId: 235, token: 'eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInVzZXJJZCI6MjM1LCJ1c2VybmFtZSI6Ims2dXNlcjAwMyIsInN1YiI6Ims2dXNlcjAwMyIsImlhdCI6MTc3NTE3Njg4OCwiZXhwIjoxNzc1NzgxNjg4fQ.IOUgSSH_qo6RFxCIZWHP2ZLMYpB_3s1EFakrN6Fja9XN9ZBjGJTLoJEj3UjY6Y719ddP808BsqKYGlGVwQt-aA' },
   ];
+
+  // 验证 token 是否有效
   const users = [];
   for (const u of testUsers) {
-    const result = login(u.username, u.password);
-    if (result.token) {
-      users.push({ username: u.username, token: result.token, userId: result.userId });
+    const res = http.get(`${BASE_URL}/auth/current`, {
+      headers: { 'Authorization': `Bearer ${u.token}` },
+    });
+    if (res.status === 200) {
+      users.push({ username: u.username, token: u.token, userId: u.userId });
     }
+    sleep(0.5);
   }
 
   if (users.length === 0) {
-    throw new Error('无法预登录测试用户，烟雾测试无法继续');
+    throw new Error('无法创建测试用户，烟雾测试无法继续');
   }
 
-  console.log(`[Smoke] 预登录 ${users.length} 个测试用户`);
+  console.log(`[Smoke] 准备 ${users.length} 个测试用户`);
   return { users };
 }
 
@@ -99,8 +103,8 @@ export default function (data) {
   const postOk = assertCreated(postRes, '发帖');
   const postId = postOk ? (() => { try { return JSON.parse(postRes.body)?.data?.id; } catch { return null; } })() : null;
 
-  // 等待异步情感分析
-  sleep(3);
+  // 等待异步情感分析（通义千问API调用通常需要5-10秒）
+  sleep(8);
 
   // ==================== 4. 帖子详情（验证情感分析完成）====================
   if (postId) {
@@ -112,8 +116,8 @@ export default function (data) {
     if (detailOk) {
       const body = JSON.parse(detailRes.body)?.data;
       check(body, {
-        '帖子详情 - 有情感分数': () => body?.sentimentScore !== undefined && body?.sentimentScore !== null,
-        '帖子详情 - 有情感标签': () => !!body?.sentimentLabel,
+        '帖子详情 - 有情感分数': () => body?.emotionScore !== undefined && body?.emotionScore !== null,
+        '帖子详情 - 有情感标签': () => !!body?.emotionLabel,
       });
     }
   }

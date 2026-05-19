@@ -23,7 +23,9 @@ import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 统计服务实现类
@@ -49,54 +51,63 @@ public class StatsServiceImpl implements StatsService {
             return cached;
         }
 
-        Map<String, Object> stats = new HashMap<>();
-
         // 用户基本信息
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
 
-        // 发帖数
-        LambdaQueryWrapper<Post> postQuery = new LambdaQueryWrapper<>();
-        postQuery.eq(Post::getUserId, userId)
-                .eq(Post::getStatus, PostStatus.PUBLISHED.getCode());
-        long postCount = postMapper.selectCount(postQuery);
+        // 并行查询所有统计（避免串行等待）
+        CompletableFuture<Long> postCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getUserId, userId)
+                .eq(Post::getStatus, PostStatus.PUBLISHED.getCode()))
+        );
 
-        // 评论数
-        LambdaQueryWrapper<Comment> commentQuery = new LambdaQueryWrapper<>();
-        commentQuery.eq(Comment::getUserId, userId)
-                .eq(Comment::getDeleted, false);
-        long commentCount = commentMapper.selectCount(commentQuery);
+        CompletableFuture<Long> commentCountFuture = CompletableFuture.supplyAsync(() ->
+            commentMapper.selectCount(new LambdaQueryWrapper<Comment>()
+                .eq(Comment::getUserId, userId)
+                .eq(Comment::getDeleted, false))
+        );
 
-        // 获赞数（帖子+评论）
-        int totalLikes = 0;
+        CompletableFuture<Long> positiveCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getUserId, userId)
+                .eq(Post::getEmotionLabel, EmotionLabel.POSITIVE.getCode()))
+        );
 
-        // 统计帖子被点赞数
-        LambdaQueryWrapper<Post> userPostQuery = new LambdaQueryWrapper<>();
-        userPostQuery.eq(Post::getUserId, userId)
-                .select(Post::getLikeCount);
-        List<Post> userPosts = postMapper.selectList(userPostQuery);
-        totalLikes += userPosts.stream()
-                .mapToInt(Post::getLikeCount)
-                .sum();
+        CompletableFuture<Long> negativeCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getUserId, userId)
+                .eq(Post::getEmotionLabel, EmotionLabel.NEGATIVE.getCode()))
+        );
 
-        // 情感统计
-        LambdaQueryWrapper<Post> positiveQuery = new LambdaQueryWrapper<>();
-        positiveQuery.eq(Post::getUserId, userId)
-                .eq(Post::getEmotionLabel, EmotionLabel.POSITIVE.getCode());
-        long positiveCount = postMapper.selectCount(positiveQuery);
+        CompletableFuture<Long> neutralCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getUserId, userId)
+                .eq(Post::getEmotionLabel, EmotionLabel.NEUTRAL.getCode()))
+        );
 
-        LambdaQueryWrapper<Post> negativeQuery = new LambdaQueryWrapper<>();
-        negativeQuery.eq(Post::getUserId, userId)
-                .eq(Post::getEmotionLabel, EmotionLabel.NEGATIVE.getCode());
-        long negativeCount = postMapper.selectCount(negativeQuery);
+        // 查询帖子点赞总数
+        CompletableFuture<List<Post>> userPostsFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectList(new LambdaQueryWrapper<Post>()
+                .eq(Post::getUserId, userId)
+                .select(Post::getLikeCount))
+        );
 
-        LambdaQueryWrapper<Post> neutralQuery = new LambdaQueryWrapper<>();
-        neutralQuery.eq(Post::getUserId, userId)
-                .eq(Post::getEmotionLabel, EmotionLabel.NEUTRAL.getCode());
-        long neutralCount = postMapper.selectCount(neutralQuery);
+        // 等待所有查询完成
+        CompletableFuture.allOf(postCountFuture, commentCountFuture, positiveCountFuture,
+            negativeCountFuture, neutralCountFuture, userPostsFuture).join();
 
+        long postCount = postCountFuture.join();
+        long commentCount = commentCountFuture.join();
+        long positiveCount = positiveCountFuture.join();
+        long negativeCount = negativeCountFuture.join();
+        long neutralCount = neutralCountFuture.join();
+        List<Post> userPosts = userPostsFuture.join();
+        int totalLikes = userPosts.stream().mapToInt(Post::getLikeCount).sum();
+
+        Map<String, Object> stats = new HashMap<>();
         stats.put("userId", userId);
         stats.put("username", user.getUsername());
         stats.put("nickname", user.getNickname());
@@ -121,45 +132,53 @@ public class StatsServiceImpl implements StatsService {
             return cached;
         }
 
-        Map<String, Object> stats = new HashMap<>();
-
-        // 总用户数
-        long totalUsers = userMapper.selectCount(null);
-
-        // 总帖子数
-        LambdaQueryWrapper<Post> postQuery = new LambdaQueryWrapper<>();
-        postQuery.eq(Post::getStatus, PostStatus.PUBLISHED.getCode());
-        long totalPosts = postMapper.selectCount(postQuery);
-
-        // 总评论数
-        long totalComments = commentMapper.selectCount(
-                new LambdaQueryWrapper<Comment>().eq(Comment::getDeleted, false)
+        // 并行查询所有统计
+        CompletableFuture<Long> totalUsersFuture = CompletableFuture.supplyAsync(() ->
+            userMapper.selectCount(null)
         );
 
-        // 总点赞数
-        long totalLikes = likeRecordMapper.selectCount(null);
+        CompletableFuture<Long> totalPostsFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getStatus, PostStatus.PUBLISHED.getCode()))
+        );
 
-        // 情感分布
-        LambdaQueryWrapper<Post> positiveQuery = new LambdaQueryWrapper<>();
-        positiveQuery.eq(Post::getEmotionLabel, EmotionLabel.POSITIVE.getCode());
-        long positiveCount = postMapper.selectCount(positiveQuery);
+        CompletableFuture<Long> totalCommentsFuture = CompletableFuture.supplyAsync(() ->
+            commentMapper.selectCount(new LambdaQueryWrapper<Comment>()
+                .eq(Comment::getDeleted, false))
+        );
 
-        LambdaQueryWrapper<Post> negativeQuery = new LambdaQueryWrapper<>();
-        negativeQuery.eq(Post::getEmotionLabel, EmotionLabel.NEGATIVE.getCode());
-        long negativeCount = postMapper.selectCount(negativeQuery);
+        CompletableFuture<Long> totalLikesFuture = CompletableFuture.supplyAsync(() ->
+            likeRecordMapper.selectCount(null)
+        );
 
-        LambdaQueryWrapper<Post> neutralQuery = new LambdaQueryWrapper<>();
-        neutralQuery.eq(Post::getEmotionLabel, EmotionLabel.NEUTRAL.getCode());
-        long neutralCount = postMapper.selectCount(neutralQuery);
+        CompletableFuture<Long> positiveCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getEmotionLabel, EmotionLabel.POSITIVE.getCode()))
+        );
 
-        stats.put("totalUsers", totalUsers);
-        stats.put("totalPosts", totalPosts);
-        stats.put("totalComments", totalComments);
-        stats.put("totalLikes", totalLikes);
+        CompletableFuture<Long> negativeCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getEmotionLabel, EmotionLabel.NEGATIVE.getCode()))
+        );
+
+        CompletableFuture<Long> neutralCountFuture = CompletableFuture.supplyAsync(() ->
+            postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getEmotionLabel, EmotionLabel.NEUTRAL.getCode()))
+        );
+
+        // 等待所有查询完成
+        CompletableFuture.allOf(totalUsersFuture, totalPostsFuture, totalCommentsFuture,
+            totalLikesFuture, positiveCountFuture, negativeCountFuture, neutralCountFuture).join();
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalUsers", totalUsersFuture.join());
+        stats.put("totalPosts", totalPostsFuture.join());
+        stats.put("totalComments", totalCommentsFuture.join());
+        stats.put("totalLikes", totalLikesFuture.join());
         stats.put("emotionDistribution", Map.of(
-                "positive", positiveCount,
-                "negative", negativeCount,
-                "neutral", neutralCount
+                "positive", positiveCountFuture.join(),
+                "negative", negativeCountFuture.join(),
+                "neutral", neutralCountFuture.join()
         ));
 
         cacheService.set(cacheKey, stats, CacheService.CacheTTL.STATS, TimeUnit.SECONDS);

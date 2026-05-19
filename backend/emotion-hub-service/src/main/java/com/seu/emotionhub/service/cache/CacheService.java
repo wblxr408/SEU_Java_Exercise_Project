@@ -4,20 +4,16 @@ import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.SessionCallback;
-import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -66,6 +62,7 @@ public class CacheService {
         public static final String STATS_PLATFORM = "stats:platform";
         public static final String EMOTION_TREND = "emotion:trend:";
         public static final String RATE_LIMIT = "rate:limit:";
+        public static final String POST_LIST = "post:list:";
     }
 
     /**
@@ -73,6 +70,7 @@ public class CacheService {
      */
     public static class CacheTTL {
         public static final long POST_DETAIL = 300; // 5分钟
+        public static final long POST_LIST = 30; // 30秒
         public static final long POST_HOT = 600; // 10分钟
         public static final long USER_INFO = 1800; // 30分钟
         public static final long STATS = 3600; // 1小时
@@ -324,8 +322,8 @@ public class CacheService {
      * 预热缓存
      * 在系统启动或低峰期预加载热门数据
      */
-    public <T> void warmUp(String keyPrefix, java.util.List<T> dataList,
-                           java.util.function.Function<T, String> keyExtractor,
+    public <T> void warmUp(String keyPrefix, List<T> dataList,
+                           Function<T, String> keyExtractor,
                            long timeout, TimeUnit unit) {
         if (dataList == null || dataList.isEmpty()) {
             return;

@@ -30,6 +30,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -79,16 +81,18 @@ public class PostServiceImpl implements PostService {
 
         log.info("用户发帖成功: userId={}, postId={}", userId, post.getId());
 
-        // 在事务提交后异步触发情感分析，避免异步线程读取到未提交数据
+        // 事务提交后再清理缓存（避免事务回滚后缓存被错误删除）
         final Long postId = post.getId();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
+                    cacheService.deletePattern(CacheService.CacheKey.POST_LIST + "*");
                     emotionAnalysisService.analyzePostAsync(postId);
                 }
             });
         } else {
+            cacheService.deletePattern(CacheService.CacheKey.POST_LIST + "*");
             emotionAnalysisService.analyzePostAsync(postId);
         }
 
@@ -97,6 +101,21 @@ public class PostServiceImpl implements PostService {
 
     @Override
     public PageResult<PostVO> listPosts(PostQueryRequest request) {
+        // 构建缓存key（基于所有查询参数）
+        String cacheKey = CacheService.CacheKey.POST_LIST
+                + request.getPage() + ":"
+                + request.getSize() + ":"
+                + (request.getEmotionLabel() != null ? request.getEmotionLabel() : "all") + ":"
+                + (request.getUserId() != null ? request.getUserId() : "all") + ":"
+                + (request.getOrderBy() != null ? request.getOrderBy() : "default");
+
+        // 尝试从缓存获取
+        PageResult<PostVO> cachedResult = cacheService.get(cacheKey, PageResult.class);
+        if (cachedResult != null) {
+            log.debug("Post list cache hit: key={}", cacheKey);
+            return cachedResult;
+        }
+
         // 构建查询条件
         LambdaQueryWrapper<Post> query = new LambdaQueryWrapper<>();
 
@@ -126,16 +145,28 @@ public class PostServiceImpl implements PostService {
         Page<Post> page = new Page<>(request.getPage(), request.getSize());
         Page<Post> postPage = postMapper.selectPage(page, query);
 
+        // 批量加载用户信息（消除N+1查询）
+        Set<Long> userIds = postPage.getRecords().stream()
+                .map(Post::getUserId)
+                .collect(Collectors.toSet());
+        Map<Long, User> userMap = batchLoadUsers(userIds);
+
         // 转换为VO
         List<PostVO> postVOList = postPage.getRecords().stream()
-                .map(this::convertToPostVO)
+                .map(post -> convertToPostVO(post, userMap.get(post.getUserId())))
                 .collect(Collectors.toList());
 
-        return new PageResult<>(
+        PageResult<PostVO> result = new PageResult<>(
                 postVOList,
                 postPage.getTotal(),
                 (int) postPage.getCurrent(),
                 (int) postPage.getSize());
+
+        // 写入缓存（30秒，平衡新鲜度和性能）
+        cacheService.set(cacheKey, result, CacheService.CacheTTL.POST_LIST, TimeUnit.SECONDS);
+        log.debug("Post list cache miss, cached: key={}", cacheKey);
+
+        return result;
     }
 
     @Override
@@ -157,15 +188,32 @@ public class PostServiceImpl implements PostService {
         if (PostStatus.DELETED.getCode().equals(post.getStatus())) {
             throw new BusinessException(ErrorCode.POST_DELETED);
         }
-        if (!PostStatus.PUBLISHED.getCode().equals(post.getStatus())) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "帖子已下架");
-        }
+        // 只拒绝已删除的帖子，分析中的帖子也允许查看（可返回部分数据）
 
-        // 浏览量+1
+        // 浏览量+1（使用afterCommit确保事务提交后再更新缓存）
+        final Integer newViewCount = post.getViewCount() + 1;
         postMapper.incrementViewCount(postId, 1);
-        post.setViewCount(post.getViewCount() + 1);
-        cacheService.set(cacheKey, post, CacheService.CacheTTL.POST_DETAIL, TimeUnit.SECONDS);
-        hotPostCacheService.updateHotScore(postId, "view");
+
+        // 将变量声明为final以供Lambda使用
+        final Post postCopy = post;
+        final String cacheKeyCopy = cacheKey;
+        final CacheService cacheServiceCopy = cacheService;
+        final HotPostCacheService hotPostCacheServiceCopy = hotPostCacheService;
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    postCopy.setViewCount(newViewCount);
+                    cacheServiceCopy.set(cacheKeyCopy, postCopy, CacheService.CacheTTL.POST_DETAIL, TimeUnit.SECONDS);
+                    hotPostCacheServiceCopy.updateHotScore(postId, "view");
+                }
+            });
+        } else {
+            post.setViewCount(newViewCount);
+            cacheService.set(cacheKey, post, CacheService.CacheTTL.POST_DETAIL, TimeUnit.SECONDS);
+            hotPostCacheService.updateHotScore(postId, "view");
+        }
 
         return convertToPostVO(post);
     }
@@ -194,7 +242,20 @@ public class PostServiceImpl implements PostService {
         }
 
         log.info("用户删除帖子: userId={}, postId={}", userId, postId);
-        hotPostCacheService.invalidatePostCache(postId);
+
+        // 事务提交后再清理缓存
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    hotPostCacheService.invalidatePostCache(postId);
+                    cacheService.deletePattern(CacheService.CacheKey.POST_LIST + "*");
+                }
+            });
+        } else {
+            hotPostCacheService.invalidatePostCache(postId);
+            cacheService.deletePattern(CacheService.CacheKey.POST_LIST + "*");
+        }
     }
 
     @Override
@@ -206,8 +267,12 @@ public class PostServiceImpl implements PostService {
 
         Page<Post> postPage = postMapper.selectPage(new Page<>(page, size), query);
 
+        // 批量加载用户信息（消除N+1查询）
+        User user = userMapper.selectById(userId);
+        Map<Long, User> userMap = user != null ? Map.of(userId, user) : Map.of();
+
         List<PostVO> postVOList = postPage.getRecords().stream()
-                .map(this::convertToPostVO)
+                .map(post -> convertToPostVO(post, userMap.get(post.getUserId())))
                 .collect(Collectors.toList());
 
         return new PageResult<>(
@@ -235,9 +300,27 @@ public class PostServiceImpl implements PostService {
     }
 
     /**
+     * 批量查询用户信息（消除N+1查询）
+     */
+    private Map<Long, User> batchLoadUsers(Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<User> users = userMapper.selectBatchIds(userIds);
+        return users.stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+    }
+
+    /**
      * 转换为PostVO
      */
     private PostVO convertToPostVO(Post post) {
+        return convertToPostVO(post, userMapper.selectById(post.getUserId()));
+    }
+
+    /**
+     * 转换为PostVO（使用已查询的用户信息）
+     */
+    private PostVO convertToPostVO(Post post, User user) {
         PostVO vo = new PostVO();
         BeanUtils.copyProperties(post, vo);
 
@@ -246,8 +329,7 @@ public class PostServiceImpl implements PostService {
             vo.setImages(JSON.parseArray(post.getImages(), String.class));
         }
 
-        // 查询作者信息
-        User user = userMapper.selectById(post.getUserId());
+        // 使用已传入的用户信息
         if (user != null) {
             vo.setUsername(user.getUsername());
             vo.setNickname(user.getNickname());

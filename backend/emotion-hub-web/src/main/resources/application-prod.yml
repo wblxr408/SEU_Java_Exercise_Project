@@ -13,8 +13,8 @@ spring:
     username: ${DB_USERNAME:emotionhub}
     password: ${DB_PASSWORD:123456}
     hikari:
-      minimum-idle: 10
-      maximum-pool-size: 50
+      minimum-idle: 30
+      maximum-pool-size: 150
       idle-timeout: 300000
       connection-timeout: 20000
       max-lifetime: 1200000
@@ -29,10 +29,10 @@ spring:
       timeout: 5000ms
       lettuce:
         pool:
-          max-active: 50
-          max-idle: 20
-          min-idle: 10
-          max-wait: 2000ms
+          max-active: 150
+          max-idle: 75
+          min-idle: 20
+          max-wait: 1000ms
 
   # 文件上传配置
   servlet:
@@ -105,9 +105,9 @@ emotion:
 # 异步线程池配置
 async:
   executor:
-    core-pool-size: 10
-    max-pool-size: 50
-    queue-capacity: 200
+    core-pool-size: 20
+    max-pool-size: 100
+    queue-capacity: 500
     thread-name-prefix: emotion-async-
     keep-alive-seconds: 60
 
@@ -151,11 +151,49 @@ emotionhub:
       domain: ${OSS_DOMAIN:}
       prefix: images/
 
+# Resilience4j 限流熔断配置
+resilience4j:
+  ratelimiter:
+    instances:
+      global:
+        limit-for-period: 600
+        limit-refresh-period: 1s
+        timeout-duration: 2s
+      post:
+        limit-for-period: 150
+        limit-refresh-period: 1s
+        timeout-duration: 1s
+      feed:
+        limit-for-period: 300
+        limit-refresh-period: 1s
+        timeout-duration: 2s
+      emotion:
+        limit-for-period: 50
+        limit-refresh-period: 1s
+        timeout-duration: 3s
+  circuitbreaker:
+    instances:
+      emotion:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: 20s
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 3s
+
 # 服务器配置
 server:
   port: 8080
   tomcat:
     max-http-post-size: 50MB
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 100
+    max-connections: 10000
   servlet:
     context-path:
   compression:
@@ -171,6 +209,8 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+    circuitbreakers:
+      enabled: true
 
 # Swagger/Knife4j配置
 knife4j:
